@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gerador de Laudo de Holter</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f3f4f6;
+    --panel: #ffffff;
+    --border: #d1d5db;
+    --text: #111827;
+    --muted: #6b7280;
+    --accent: #0f766e;
+    --accent-contrast: #ffffff;
+    --danger: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  .toolbar h1 { font-size: 16px; margin: 0; }
+  .toolbar .actions { display: flex; gap: 8px; }
+  button {
+    font: inherit;
+    font-size: 13px;
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button:hover { background: var(--bg); }
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-contrast);
+  }
+  button.primary:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.6; cursor: default; }
+
+  main { flex: 1; display: flex; min-height: 0; }
+
+  #form-pane {
+    width: 400px;
+    min-width: 340px;
+    overflow-y: auto;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 16px;
+  }
+  fieldset {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 0 0 14px;
+    padding: 8px 12px 12px;
+  }
+  legend { font-weight: bold; font-size: 12px; padding: 0 4px; }
+  label { display: block; font-size: 11px; color: var(--muted); margin: 8px 0 2px; }
+  label.req::after { content: " *"; color: var(--danger); }
+  input, select, textarea {
+    width: 100%;
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--panel);
+    color: var(--text);
+  }
+  input.invalid, select.invalid { border-color: var(--danger); }
+  textarea { resize: vertical; min-height: 110px; }
+  textarea.small { min-height: 60px; }
+  .row { display: flex; gap: 8px; }
+  .row > div { flex: 1; min-width: 0; }
+  .hint { font-size: 10.5px; color: var(--muted); margin-top: 3px; }
+
+  #preview-pane { flex: 1; overflow: auto; padding: 24px; }
+  #pages-wrapper { margin: 0 auto; }
+  #pages { width: 210mm; }
+
+  /* ---------- Documento (A4) ---------- */
+  .page {
+    width: 210mm;
+    height: 297mm;
+    background: #fff;
+    color: #000;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    margin: 0 0 16px;
+    padding: 14mm 20mm 10mm;
+    display: flex;
+    flex-direction: column;
+    font-size: 10.5px;
+    line-height: 1.5;
+  }
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 1.5px solid #000;
+    padding-bottom: 3mm;
+  }
+  .logo-box img { max-height: 16mm; max-width: 50mm; display: block; }
+  .logo-placeholder {
+    width: 34mm;
+    height: 14mm;
+    border: 1px dashed #999;
+    color: #999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    letter-spacing: 2px;
+  }
+  .clinic { text-align: right; }
+  .clinic .name { font-weight: bold; font-size: 16px; line-height: 1.25; }
+  .clinic .unit { font-size: 10px; }
+  .clinic .exam { font-weight: bold; font-size: 11.5px; margin-top: 1mm; }
+
+  .page-content { flex: 1; min-height: 0; overflow: hidden; padding-top: 4mm; }
+
+  .page-footer {
+    border-top: 1px solid #000;
+    padding-top: 2mm;
+    margin-top: 2mm;
+    display: flex;
+    justify-content: space-between;
+    font-size: 8.5px;
+    color: #222;
+  }
+
+  table.pgrid {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    margin: 0 0 5mm;
+  }
+  .pgrid td {
+    border: 1px solid #555;
+    padding: 1.6mm 2mm;
+    font-size: 9.8px;
+    overflow: hidden;
+  }
+  .lbl { font-weight: bold; }
+
+  .laudo-title { font-weight: bold; font-size: 11.5px; margin: 2mm 0 2.5mm; }
+  .laudo-p { margin: 0 0 2.2mm; text-align: justify; }
+  .conclusao { margin-top: 4mm; }
+
+  .sig-block {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-top: 16mm;
+  }
+  .sig-left .sig-line { width: 70mm; border-top: 1px solid #000; margin-bottom: 1.5mm; }
+  .sig-left .doc-name { font-weight: bold; }
+  .sig-right { font-size: 9px; text-align: right; color: #222; }
+
+  /* ---------- Impressão (fallback Ctrl+P) ---------- */
+  @page { size: A4; margin: 0; }
+  @media print {
+    .toolbar, #form-pane { display: none !important; }
+    main, #preview-pane { display: block; overflow: visible; padding: 0; }
+    #pages-wrapper { width: auto !important; height: auto !important; }
+    #pages { transform: none !important; }
+    .page {
+      height: 296.5mm;
+      box-shadow: none;
+      margin: 0;
+      break-after: page;
+    }
+    .page:last-child { break-after: auto; }
+  }
+</style>
+</head>
+<body>
+
+<header class="toolbar">
+  <h1>Gerador de Laudo de Holter</h1>
+  <div class="actions">
+    <button type="button" id="btn-exemplo">Preencher exemplo</button>
+    <button type="button" id="btn-preview">Gerar preview</button>
+    <button type="button" id="btn-pdf" class="primary">Exportar PDF</button>
+  </div>
+</header>
+
+<main>
+  <section id="form-pane">
+    <form id="report-form" autocomplete="off">
+
+      <fieldset>
+        <legend>Clínica</legend>
+        <label for="c_nome">Nome da clínica</label>
+        <input id="c_nome" type="text" value="Clínica Cardiológica Exemplo" />
+        <div class="row">
+          <div>
+            <label for="c_unidade">Unidade</label>
+            <input id="c_unidade" type="text" value="Unidade Centro" />
+          </div>
+          <div>
+            <label for="c_tipo">Tipo de exame</label>
+            <input id="c_tipo" type="text" value="Holter" />
+          </div>
+        </div>
+        <label for="logo_file">Logo (opcional)</label>
+        <input id="logo_file" type="file" accept="image/*" />
+      </fieldset>
+
+      <fieldset>
+        <legend>Paciente</legend>
+        <label class="req" for="p_nome">Nome completo</label>
+        <input id="p_nome" type="text" />
+        <div class="row">
+          <div>
+            <label class="req" for="p_nascimento">Data de nascimento</label>
+            <input id="p_nascimento" type="date" />
+            <div class="hint">A idade é calculada automaticamente.</div>
+          </div>
+          <div>
+            <label class="req" for="p_sexo">Sexo</label>
+            <select id="p_sexo">
+              <option value=""></option>
+              <option>Feminino</option>
+              <option>Masculino</option>
+              <option>Outro</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label class="req" for="p_prontuario">Nº do paciente / prontuário</label>
+            <input id="p_prontuario" type="text" />
+          </div>
+          <div>
+            <label class="req" for="p_data_exame">Data e hora do exame</label>
+            <input id="p_data_exame" type="datetime-local" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="p_cpf">CPF</label>
+            <input id="p_cpf" type="text" />
+          </div>
+          <div>
+            <label for="p_rg">RG</label>
+            <input id="p_rg" type="text" />
+          </div>
+          <div>
+            <label for="p_cns">CNS</label>
+            <input id="p_cns" type="text" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="p_peso">Peso (kg)</label>
+            <input id="p_peso" type="number" step="any" min="0" />
+          </div>
+          <div>
+            <label for="p_altura">Altura (cm)</label>
+            <input id="p_altura" type="number" step="any" min="0" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="p_empresa">Empresa</label>
+            <input id="p_empresa" type="text" />
+          </div>
+          <div>
+            <label for="p_medico">Médico solicitante</label>
+            <input id="p_medico" type="text" />
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Laudo</legend>
+        <label for="l_paragrafos">Parágrafos do laudo</label>
+        <textarea id="l_paragrafos"></textarea>
+        <div class="hint">Uma linha por achado.</div>
+        <label for="l_conclusao">Conclusão</label>
+        <textarea id="l_conclusao" class="small"></textarea>
+      </fieldset>
+
+      <fieldset>
+        <legend>Assinatura / Validação</legend>
+        <label for="a_medico">Nome do médico</label>
+        <input id="a_medico" type="text" />
+        <div class="row">
+          <div>
+            <label for="a_especialidade">Especialidade</label>
+            <input id="a_especialidade" type="text" />
+          </div>
+          <div>
+            <label for="a_crm">CRM</label>
+            <input id="a_crm" type="text" />
+          </div>
+          <div>
+            <label for="a_rqe">RQE</label>
+            <input id="a_rqe" type="text" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="a_assinado_em">Data/hora de assinatura</label>
+            <input id="a_assinado_em" type="datetime-local" />
+          </div>
+          <div>
+            <label for="a_ip">IP do laudador</label>
+            <input id="a_ip" type="text" />
+          </div>
+        </div>
+        <label for="a_codigo">Código de validação</label>
+        <input id="a_codigo" type="text" />
+        <div class="hint">
+          Num sistema real, este bloco vem preenchido pelo fluxo de assinatura do laudo —
+          aqui é manual apenas para a renderização do protótipo.
+        </div>
+      </fieldset>
+
+    </form>
+  </section>
+
+  <section id="preview-pane">
+    <div id="pages-wrapper">
+      <div id="pages"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let logoDataUrl = null;
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+  const dash = (v) => (v && String(v).trim()) ? esc(String(v).trim()) : '-';
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
+  }
+  function fmtExam(dt) {
+    if (!dt) return '';
+    const [date, time] = dt.split('T');
+    return `${fmtDate(date)} às ${time.slice(0, 5)}`;
+  }
+  function fmtSigned(dt) {
+    if (!dt) return '';
+    const [date, time] = dt.split('T');
+    const t = time.length === 5 ? time + ':00' : time;
+    return `${fmtDate(date)} ${t}`;
+  }
+  function calcAge(birthIso, refIso) {
+    if (!birthIso) return '';
+    const b = new Date(birthIso + 'T00:00:00');
+    const ref = refIso ? new Date(refIso) : new Date();
+    if (isNaN(b) || isNaN(ref)) return '';
+    let a = ref.getFullYear() - b.getFullYear();
+    const m = ref.getMonth() - b.getMonth();
+    if (m < 0 || (m === 0 && ref.getDate() < b.getDate())) a--;
+    return a >= 0 ? `${a} anos` : '';
+  }
+
+  function collectData() {
+    const nasc = $('p_nascimento').value;
+    const exame = $('p_data_exame').value;
+    return {
+      clinica: {
+        nome: $('c_nome').value.trim(),
+        unidade: $('c_unidade').value.trim(),
+        tipo_exame: $('c_tipo').value.trim() || 'Holter'
+      },
+      paciente: {
+        nome: $('p_nome').value.trim(),
+        nascimento: fmtDate(nasc),
+        idade: calcAge(nasc, exame || null),
+        sexo: $('p_sexo').value,
+        prontuario: $('p_prontuario').value.trim(),
+        data_exame: fmtExam(exame),
+        cpf: dash($('p_cpf').value),
+        rg: dash($('p_rg').value),
+        cns: dash($('p_cns').value),
+        peso: $('p_peso').value ? esc($('p_peso').value) + ' kg' : '-',
+        altura: $('p_altura').value ? esc($('p_altura').value) + ' cm' : '-',
+        empresa: dash($('p_empresa').value),
+        medico_solicitante: dash($('p_medico').value)
+      },
+      laudo: {
+        paragrafos: $('l_paragrafos').value.split('\n').map(s => s.trim()).filter(Boolean),
+        conclusao: $('l_conclusao').value.trim()
+      },
+      assinatura: {
+        medico: $('a_medico').value.trim(),
+        especialidade: $('a_especialidade').value.trim(),
+        crm: $('a_crm').value.trim(),
+        rqe: $('a_rqe').value.trim(),
+        assinado_em: fmtSigned($('a_assinado_em').value),
+        ip: $('a_ip').value.trim(),
+        codigo_validacao: $('a_codigo').value.trim()
+      }
+    };
+  }
+
+  /* ---------- Montagem das páginas ---------- */
+
+  function el(html) {
+    const t = document.createElement('div');
+    t.innerHTML = html.trim();
+    return t.firstElementChild;
+  }
+
+  function pageHeaderHtml(d) {
+    const logo = logoDataUrl
+      ? `<img src="${logoDataUrl}" alt="Logo">`
+      : `<div class="logo-placeholder">LOGO</div>`;
+    return `<div class="page-header">
+      <div class="logo-box">${logo}</div>
+      <div class="clinic">
+        <div class="name">${esc(d.clinica.nome) || '&nbsp;'}</div>
+        ${d.clinica.unidade ? `<div class="unit">${esc(d.clinica.unidade)}</div>` : ''}
+        <div class="exam">${esc(d.clinica.tipo_exame)}</div>
+      </div>
+    </div>`;
+  }
+
+  function pageFooterHtml(d) {
+    const left = [d.clinica.tipo_exame, d.paciente.nome].filter(Boolean).map(esc).join(' — ');
+    return `<div class="page-footer"><span>${left}</span><span class="page-num"></span></div>`;
+  }
+
+  function newPage(d, pagesEl) {
+    const page = el(`<div class="page">${pageHeaderHtml(d)}<div class="page-content"></div>${pageFooterHtml(d)}</div>`);
+    pagesEl.appendChild(page);
+    return {
+      el: page,
+      content: page.querySelector('.page-content'),
+      num: page.querySelector('.page-num')
+    };
+  }
+
+  function buildBlocks(d) {
+    const p = d.paciente;
+    const blocks = [];
+
+    blocks.push(el(`<table class="pgrid"><colgroup>${'<col>'.repeat(12)}</colgroup><tbody>
+      <tr>
+        <td colspan="6"><span class="lbl">Paciente:</span> ${esc(p.nome)}</td>
+        <td colspan="3"><span class="lbl">Nascimento:</span> ${esc(p.nascimento)}${p.idade ? ` (${esc(p.idade)})` : ''}</td>
+        <td colspan="3"><span class="lbl">Sexo:</span> ${esc(p.sexo)}</td>
+      </tr>
+      <tr>
+        <td colspan="3"><span class="lbl">CPF:</span> ${p.cpf}</td>
+        <td colspan="3"><span class="lbl">RG:</span> ${p.rg}</td>
+        <td colspan="3"><span class="lbl">CNS:</span> ${p.cns}</td>
+        <td colspan="3"><span class="lbl">Nº prontuário:</span> ${esc(p.prontuario)}</td>
+      </tr>
+      <tr>
+        <td colspan="3"><span class="lbl">Peso:</span> ${p.peso}</td>
+        <td colspan="3"><span class="lbl">Altura:</span> ${p.altura}</td>
+        <td colspan="6"><span class="lbl">Data do exame:</span> ${esc(p.data_exame)}</td>
+      </tr>
+      <tr>
+        <td colspan="6"><span class="lbl">Empresa:</span> ${p.empresa}</td>
+        <td colspan="6"><span class="lbl">Médico solicitante:</span> ${p.medico_solicitante}</td>
+      </tr>
+    </tbody></table>`));
+
+    const ps = d.laudo.paragrafos;
+    const firstP = ps.length ? `<p class="laudo-p">${esc(ps[0])}</p>` : '';
+    blocks.push(el(`<div><div class="laudo-title">Laudo:</div>${firstP}</div>`));
+    for (let i = 1; i < ps.length; i++) {
+      blocks.push(el(`<p class="laudo-p">${esc(ps[i])}</p>`));
+    }
+    if (d.laudo.conclusao) {
+      blocks.push(el(`<p class="laudo-p conclusao"><span class="lbl">CONCLUSÃO:</span> ${esc(d.laudo.conclusao)}</p>`));
+    }
+
+    const a = d.assinatura;
+    const crmRqe = [a.crm, a.rqe].filter(Boolean).map(esc).join(' &bull; ');
+    blocks.push(el(`<div class="sig-block">
+      <div class="sig-left">
+        <div class="sig-line"></div>
+        <div class="doc-name">${esc(a.medico)}</div>
+        ${a.especialidade ? `<div>${esc(a.especialidade)}</div>` : ''}
+        ${crmRqe ? `<div>${crmRqe}</div>` : ''}
+      </div>
+      <div class="sig-right">
+        ${a.assinado_em ? `<div><span class="lbl">Laudo assinado em:</span> ${esc(a.assinado_em)}</div>` : ''}
+        ${a.ip ? `<div><span class="lbl">IP do laudador:</span> ${esc(a.ip)}</div>` : ''}
+        ${a.codigo_validacao ? `<div><span class="lbl">Código de validação:</span> ${esc(a.codigo_validacao)}</div>` : ''}
+      </div>
+    </div>`));
+
+    return blocks;
+  }
+
+  function renderPreview() {
+    const d = collectData();
+    const pagesEl = $('pages');
+    pagesEl.innerHTML = '';
+
+    const pages = [];
+    let page = newPage(d, pagesEl);
+    pages.push(page);
+
+    for (const block of buildBlocks(d)) {
+      page.content.appendChild(block);
+      if (page.content.scrollHeight > page.content.clientHeight && page.content.children.length > 1) {
+        page.content.removeChild(block);
+        page = newPage(d, pagesEl);
+        pages.push(page);
+        page.content.appendChild(block);
+      }
+    }
+
+    pages.forEach((pg, i) => { pg.num.textContent = `Página ${i + 1} de ${pages.length}`; });
+    fitScale();
+  }
+
+  function fitScale() {
+    const pane = $('preview-pane');
+    const pages = $('pages');
+    const wrap = $('pages-wrapper');
+    pages.style.transform = 'none';
+    const w = pages.offsetWidth;
+    const h = pages.offsetHeight;
+    const scale = Math.min(1, (pane.clientWidth - 48) / w);
+    pages.style.transformOrigin = 'top left';
+    pages.style.transform = `scale(${scale})`;
+    wrap.style.width = (w * scale) + 'px';
+    wrap.style.height = (h * scale) + 'px';
+  }
+
+  /* ---------- Exportação ---------- */
+
+  const REQUIRED = [
+    ['p_nome', 'Nome completo'],
+    ['p_nascimento', 'Data de nascimento'],
+    ['p_sexo', 'Sexo'],
+    ['p_prontuario', 'Nº do paciente / prontuário'],
+    ['p_data_exame', 'Data e hora do exame']
+  ];
+
+  function validateRequired() {
+    const missing = [];
+    for (const [id, labelText] of REQUIRED) {
+      const field = $(id);
+      const empty = !field.value.trim();
+      field.classList.toggle('invalid', empty);
+      if (empty) missing.push(labelText);
+    }
+    return missing;
+  }
+
+  function buildFileName() {
+    const nome = $('p_nome').value;
+    const slug = nome
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'paciente';
+    const exame = $('p_data_exame').value;
+    const date = exame ? exame.slice(0, 10) : new Date().toISOString().slice(0, 10);
+    return `laudo_${slug}_${date}.pdf`;
+  }
+
+  async function exportPdf() {
+    const missing = validateRequired();
+    if (missing.length) {
+      alert('Preencha os campos obrigatórios:\n— ' + missing.join('\n— '));
+      return;
+    }
+    if (!window.html2canvas || !window.jspdf) {
+      alert('Bibliotecas de PDF não carregadas (verifique a conexão e recarregue a página).\nAlternativa: Ctrl+P → Salvar como PDF.');
+      return;
+    }
+
+    renderPreview();
+    const pagesEl = $('pages');
+    pagesEl.style.transform = 'none';
+    const btn = $('btn-pdf');
+    btn.disabled = true;
+    btn.textContent = 'Gerando…';
+
+    try {
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+      const pageEls = [...pagesEl.querySelectorAll('.page')];
+      for (let i = 0; i < pageEls.length; i++) {
+        const canvas = await html2canvas(pageEls[i], { scale: 2, backgroundColor: '#ffffff', logging: false });
+        if (i > 0) pdf.addPage();
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 297);
+      }
+      pdf.save(buildFileName());
+    } finally {
+      fitScale();
+      btn.disabled = false;
+      btn.textContent = 'Exportar PDF';
+    }
+  }
+
+  /* ---------- Exemplo (dados ilustrativos da especificação) ---------- */
+
+  function preencherExemplo() {
+    $('c_nome').value = 'Clínica Cardiológica Exemplo';
+    $('c_unidade').value = 'Unidade Centro';
+    $('c_tipo').value = 'Holter';
+    $('p_nome').value = 'Paciente Exemplo da Silva';
+    $('p_nascimento').value = '1980-03-12';
+    $('p_sexo').value = 'Feminino';
+    $('p_prontuario').value = '000123';
+    $('p_data_exame').value = '2026-06-10T09:30';
+    ['p_cpf', 'p_rg', 'p_cns', 'p_peso', 'p_altura', 'p_empresa', 'p_medico'].forEach(id => { $(id).value = ''; });
+    $('l_paragrafos').value = [
+      'Ao Holter, observou-se ritmo sinusal durante todo o exame, com FC média de 72 bpm.',
+      'Ausência de pausas significativas.',
+      'Condução atrioventricular 1:1, com intervalo PR normal.',
+      'Condução intraventricular normal.',
+      'Ausência de ectopias supraventriculares e ventriculares.',
+      'Ausência de alterações de repolarização ventricular significativas.'
+    ].join('\n');
+    $('l_conclusao').value = 'Ritmo sinusal // Ausência de alterações significativas.';
+    $('a_medico').value = 'Dr(a). Nome do Médico';
+    $('a_especialidade').value = 'Cardiologista';
+    $('a_crm').value = 'CRM/UF 00000';
+    $('a_rqe').value = 'RQE 00000';
+    $('a_assinado_em').value = '2026-06-11T10:15';
+    $('a_ip').value = '0.0.0.0';
+    $('a_codigo').value = 'exemplo123';
+    document.querySelectorAll('.invalid').forEach(f => f.classList.remove('invalid'));
+    renderPreview();
+  }
+
+  /* ---------- Eventos ---------- */
+
+  let debounceTimer;
+  $('report-form').addEventListener('input', (e) => {
+    e.target.classList.remove('invalid');
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(renderPreview, 250);
+  });
+
+  $('logo_file').addEventListener('change', () => {
+    const file = $('logo_file').files[0];
+    if (!file) { logoDataUrl = null; renderPreview(); return; }
+    const reader = new FileReader();
+    reader.onload = () => { logoDataUrl = reader.result; renderPreview(); };
+    reader.readAsDataURL(file);
+  });
+
+  $('btn-exemplo').addEventListener('click', preencherExemplo);
+  $('btn-preview').addEventListener('click', renderPreview);
+  $('btn-pdf').addEventListener('click', exportPdf);
+  window.addEventListener('resize', fitScale);
+
+  const originalTitle = document.title;
+  window.addEventListener('beforeprint', () => { document.title = buildFileName().replace(/\.pdf$/, ''); });
+  window.addEventListener('afterprint', () => { document.title = originalTitle; });
+
+  renderPreview();
+</script>
+</body>
+</html>
